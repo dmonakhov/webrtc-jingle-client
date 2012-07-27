@@ -102,7 +102,7 @@ if [ "$BUILDSYSTEM" == "gyp" ]; then
   adb install $TRUNKDIR/out/Debug/VoiceClient/VoiceClient-debug.apk
   check_return_code "$?"
 
-  adb shell am start -a android.intent.action.VIEW  -n com.tuenti.voice/.VoiceClientActivity
+  adb shell am start -a android.intent.action.VIEW  -n com.tuenti.voice/.ui.VoiceClientActivity
   check_return_code "$?"
 
   $TRUNKDIR/build/android/gdb_apk -p com.tuenti.voice -l out/Debug/obj.target/

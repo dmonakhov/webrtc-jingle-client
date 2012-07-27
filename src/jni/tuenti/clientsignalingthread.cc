@@ -1,4 +1,5 @@
 #include <assert.h>
+
 #include "tuenti/clientsignalingthread.h"
 #include "tuenti/logging.h"
 #include "tuenti/presenceouttask.h"
@@ -8,24 +9,26 @@
 #include "talk/base/ssladapter.h"
 #include "talk/session/phone/call.h"
 #include "talk/session/phone/mediasessionclient.h"
+#include "talk/xmpp/pingtask.h"
 #include "talk/p2p/base/sessionmanager.h"
 #include "talk/p2p/client/basicportallocator.h"
 #include "talk/p2p/client/sessionmanagertask.h"
 namespace tuenti{
 enum {
-  //ST_MSG_WORKER_DONE is defined in SignalThread.h
-  MSG_LOGIN = talk_base::SignalThread::ST_MSG_FIRST_AVAILABLE
-  , MSG_DISCONNECT//Logout
-  , MSG_CALL
-  , MSG_ACCEPT_CALL
-  , MSG_DECLINE_CALL
-  , MSG_END_CALL
+    //ST_MSG_WORKER_DONE is defined in SignalThread.h
+    MSG_LOGIN = talk_base::SignalThread::ST_MSG_FIRST_AVAILABLE,
+    MSG_DISCONNECT //Logout
+    ,
+    MSG_CALL,
+    MSG_ACCEPT_CALL,
+    MSG_DECLINE_CALL,
+    MSG_END_CALL
 //  , MSG_DESTROY
 };
 
 struct StringData: public talk_base::MessageData {
-    StringData(std::string s) :
-            s_(s) {
+    StringData(std::string s)
+            : s_(s) {
     }
     std::string s_;
 };
@@ -42,6 +45,7 @@ ClientSignalingThread::ClientSignalingThread(VoiceClientNotify *notifier, talk_b
 , pump_(NULL)
 , presence_push_(NULL)
 , presence_out_(NULL)
+, ping_(NULL)
 , network_manager_(NULL)
 , port_allocator_(NULL)
 , session_(NULL)
@@ -138,56 +142,58 @@ void ClientSignalingThread::OnStatusUpdate(const buzz::Status& status) {
             roster_->erase(iter);
     }
 }
+
 void ClientSignalingThread::OnSessionState(cricket::Call* call, cricket::Session* session, cricket::Session::State state) {
     LOGI("ClientSignalingThread::OnSessionState");
     assert(talk_base::Thread::Current() == signal_thread_);
     switch(state){
-        default:
-            LOGI("VoiceClient::OnSessionState - UNKNOWN_STATE");
-            break;
-        case cricket::BaseSession::STATE_SENTTERMINATE:
-            LOGI("VoiceClient::OnSessionState - STATE_SENTTERMINATE doing nothing...");
-            break;
-        case cricket::BaseSession::STATE_DEINIT:
-            LOGI("VoiceClient::OnSessionState - STATE_DEINIT doing nothing...");
-            break;
-        case cricket::Session::STATE_RECEIVEDINITIATE:
-        {
-            LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDINITIATE setting up call...");
-            buzz::Jid jid(session->remote_name());
-            LOGI("Incoming call from '%s'", jid.Str().c_str());
-            call_ = call;
-            session_ = session;
-            incoming_call_ = true;
-            if (auto_accept_) {
-                AcceptCall();
-            }
+    default:
+        LOGI("VoiceClient::OnSessionState - UNKNOWN_STATE");
+        break;
+    case cricket::BaseSession::STATE_SENTTERMINATE:
+        LOGI("VoiceClient::OnSessionState - STATE_SENTTERMINATE doing nothing...");
+        break;
+    case cricket::BaseSession::STATE_DEINIT:
+        LOGI("VoiceClient::OnSessionState - STATE_DEINIT doing nothing...");
+        break;
+    case cricket::Session::STATE_RECEIVEDINITIATE:
+    {
+        LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDINITIATE setting up call...");
+        buzz::Jid jid(session->remote_name());
+        LOGI("Incoming call from '%s'", jid.Str().c_str());
+        call_ = call;
+        session_ = session;
+        incoming_call_ = true;
+        if (auto_accept_) {
+            AcceptCall();
         }
-            break;
-        case cricket::Session::STATE_SENTINITIATE:
-            LOGI("VoiceClient::OnSessionState - STATE_SENTINITIATE doing nothing...");
-            break;
-        case cricket::Session::STATE_RECEIVEDACCEPT:
-            LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDACCEPT transfering data...");
-            if (call_->has_data()) {
-                call_->SignalDataReceived.connect(this, &ClientSignalingThread::OnDataReceived);
-            }
-            break;
-        case cricket::Session::STATE_RECEIVEDREJECT:
-            LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDREJECT doing nothing...");
-            break;
-        case cricket::Session::STATE_INPROGRESS:
-            LOGI("VoiceClient::OnSessionState - STATE_INPROGRESS monitoring...");
-            call->StartSpeakerMonitor(session);
-            break;
-        case cricket::Session::STATE_RECEIVEDTERMINATE:
-            LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDTERMINATE doing nothing...");
-            break;
+    }
+    break;
+    case cricket::Session::STATE_SENTINITIATE:
+        LOGI("VoiceClient::OnSessionState - STATE_SENTINITIATE doing nothing...");
+        break;
+    case cricket::Session::STATE_RECEIVEDACCEPT:
+        LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDACCEPT transfering data...");
+        if (call_->has_data()) {
+            call_->SignalDataReceived.connect(this, &ClientSignalingThread::OnDataReceived);
+        }
+        break;
+    case cricket::Session::STATE_RECEIVEDREJECT:
+        LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDREJECT doing nothing...");
+        break;
+    case cricket::Session::STATE_INPROGRESS:
+        LOGI("VoiceClient::OnSessionState - STATE_INPROGRESS monitoring...");
+        call->StartSpeakerMonitor(session);
+        break;
+    case cricket::Session::STATE_RECEIVEDTERMINATE:
+        LOGI("VoiceClient::OnSessionState - STATE_RECEIVEDTERMINATE doing nothing...");
+        break;
     }
     if (notify_) {
         notify_->OnCallStateChange(session, state);
     }
 }
+
 void ClientSignalingThread::OnStateChange(buzz::XmppEngine::State state) {
     LOGI("ClientSignalingThread::OnStateChange");
     assert(talk_base::Thread::Current() == signal_thread_);
@@ -205,14 +211,16 @@ void ClientSignalingThread::OnStateChange(buzz::XmppEngine::State state) {
         LOGI("ClientSignalingThread::OnStateChange - State (STATE_OPENING) doing nothing...");
         break;
     case buzz::XmppEngine::STATE_OPEN:
-        LOGI("ClientSignalingThread::OnStateChange - State (STATE_OPEN) initing media & presence...");
+        LOGI( "ClientSignalingThread::OnStateChange - State (STATE_OPEN) initing media & presence...");
         InitMedia();
         InitPresence();
+        InitPing();
         break;
     case buzz::XmppEngine::STATE_CLOSED:
         LOGI("ClientSignalingThread::OnStateChange - State (STATE_CLOSED) cleaning up ssl, deleting media client & clearing roster...");
-        if (use_ssl_)
+        if (use_ssl_ && xcs_.use_tls() == buzz::TLS_REQUIRED) {
             talk_base::CleanupSSL();
+        }
         //Remove everyone from your roster
         if(roster_) {
           roster_->clear();
@@ -226,7 +234,9 @@ void ClientSignalingThread::OnStateChange(buzz::XmppEngine::State state) {
     }
     //main_thread_->Post(this, MSG_STATE_CHANGE, new StateChangeData(state));
 }
-void ClientSignalingThread::OnDataReceived(cricket::Call*, const cricket::ReceiveDataParams& params, const std::string& data) {
+
+void ClientSignalingThread::OnDataReceived(cricket::Call*, const cricket::ReceiveDataParams& params,
+        const std::string& data) {
     LOGI("ClientSignalingThread::OnDataReceived");
     assert(talk_base::Thread::Current() == signal_thread_);
     cricket::StreamParams stream;
@@ -237,6 +247,7 @@ void ClientSignalingThread::OnDataReceived(cricket::Call*, const cricket::Receiv
         LOGI("Received data (ssrc=%u): %s", params.ssrc, data.c_str());
     }
 }
+
 void ClientSignalingThread::OnRequestSignaling() {
     LOGI("ClientSignalingThread::OnRequestSignaling");
     assert(talk_base::Thread::Current() == signal_thread_);
@@ -265,18 +276,42 @@ void ClientSignalingThread::OnCallDestroy(cricket::Call* call) {
     }
 }
 
-void ClientSignalingThread::OnMediaEngineTerminate() {
-    LOGI("ClientSignalingThread::OnMediaEngineTerminate");
-    assert(talk_base::Thread::Current() == signal_thread_);
+void ClientSignalingThread::OnPingTimeout() {
+    LOGE("XMPP ping timeout. Will keep trying...");
+    InitPing();
 }
 // ================================================================
 // THESE ARE THE ONLY FUNCTIONS THAT CAN BE CALLED USING ANY THREAD
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-void ClientSignalingThread::Login(bool use_ssl, buzz::XmppClientSettings settings){
+void ClientSignalingThread::Login(const std::string &username, const std::string &password, const std::string &xmpp_host, int xmpp_port, bool use_ssl, const std::string &stun_host, int stun_port) {
     LOGI("ClientSignalingThread::Login");
     //assert(talk_base::Thread::Current() == signal_thread_);
-    xcs_ = settings;
     use_ssl_ = use_ssl;
+
+    LOGI("ClientSignalingThread::Login");
+
+    if (use_ssl) {
+        talk_base::InitializeSSL();
+    }
+
+    buzz::Jid jid = buzz::Jid(username);
+
+    talk_base::InsecureCryptStringImpl pass;
+    pass.password() = password;
+
+    xcs_.set_user(jid.node());
+    xcs_.set_resource("TuentiVoice");
+    xcs_.set_host(jid.domain());
+    xcs_.set_use_tls(use_ssl ? buzz::TLS_REQUIRED : buzz::TLS_DISABLED);
+    xcs_.set_pass(talk_base::CryptString(pass));
+    xcs_.set_server(talk_base::SocketAddress(xmpp_host, xmpp_port));
+
+    // stun server socket address
+    talk_base::SocketAddress stun_addr(stun_host, stun_port);
+    port_allocator_ = new cricket::BasicPortAllocator(network_manager_, stun_addr, talk_base::SocketAddress(),
+            talk_base::SocketAddress(), talk_base::SocketAddress());
+    LOGI( "ClientSignalingThread::Login - new BasicPortAllocator port_allocator_@(0x%x)", port_allocator_);
+
     signal_thread_->Post(this, MSG_LOGIN);
 }
 
@@ -478,7 +513,6 @@ void ClientSignalingThread::InitMedia() {
     std::string client_unique = pump_->client()->jid().Str();
     talk_base::InitRandom(client_unique.c_str(), client_unique.size());
 
-
     //TODO: We need to modify the last params of this to add TURN server addresses.
     session_manager_->SignalRequestSignaling.connect(this, &ClientSignalingThread::OnRequestSignaling);
     session_manager_->SignalSessionCreate.connect(this, &ClientSignalingThread::OnSessionCreate);
@@ -488,12 +522,12 @@ void ClientSignalingThread::InitMedia() {
     session_manager_task_->EnableOutgoingMessages();
     session_manager_task_->Start();
 
-    
     media_client_ = new cricket::MediaSessionClient(pump_->client()->jid(), session_manager_);
     media_client_->SignalCallCreate.connect(this, &ClientSignalingThread::OnCallCreate);
     media_client_->SignalCallDestroy.connect(this, &ClientSignalingThread::OnCallDestroy);
     media_client_->set_secure(cricket::SEC_DISABLED);
 }
+
 void ClientSignalingThread::InitPresence() {
     //NFHACK Fix the news
     LOGI("ClientSignalingThread::InitPresence");
@@ -502,33 +536,27 @@ void ClientSignalingThread::InitPresence() {
     presence_push_->SignalStatusUpdate.connect(this, &ClientSignalingThread::OnStatusUpdate);
     presence_push_->Start();
 
+    my_status_.set_jid(pump_->client()->jid());
+    my_status_.set_available(true);
+    my_status_.set_show(buzz::Status::SHOW_ONLINE);
+    my_status_.set_know_capabilities(true);
+    my_status_.set_pmuc_capability(false);
+
+    int capabilities = media_client_->GetCapabilities();
+    my_status_.set_voice_capability((capabilities & cricket::AUDIO_RECV) != 0);
+    my_status_.set_video_capability((capabilities & cricket::VIDEO_RECV) != 0);
+    my_status_.set_camera_capability((capabilities & cricket::VIDEO_SEND) != 0);
+
     presence_out_ = new buzz::PresenceOutTask(pump_->client());
-    SetAvailable(pump_->client()->jid(), &my_status_);
-    SetCaps(media_client_->GetCapabilities(), &my_status_);
     presence_out_->Send(my_status_);
     presence_out_->Start();
 }
-void ClientSignalingThread::SetMediaCaps(int media_caps, buzz::Status* status) {
-    LOGI("ClientSignalingThread::SetMediaCaps");
-    assert(talk_base::Thread::Current() == signal_thread_);
-    status->set_voice_capability((media_caps & cricket::AUDIO_RECV) != 0);
-    status->set_video_capability((media_caps & cricket::VIDEO_RECV) != 0);
-    status->set_camera_capability((media_caps & cricket::VIDEO_SEND) != 0);
+
+void ClientSignalingThread::InitPing() {
+    LOGI("ClientSignalingThread::InitPing");
+    ping_ = new buzz::PingTask(pump_->client(), talk_base::Thread::Current(), 10000, 10000);
+    ping_->SignalTimeout.connect(this, &ClientSignalingThread::OnPingTimeout);
+    ping_->Start();
 }
 
-void ClientSignalingThread::SetCaps(int media_caps, buzz::Status* status) {
-    LOGI("ClientSignalingThread::SetCaps");
-    assert(talk_base::Thread::Current() == signal_thread_);
-    status->set_know_capabilities(true);
-    status->set_pmuc_capability(false);
-    SetMediaCaps(media_caps, status);
-}
-
-void ClientSignalingThread::SetAvailable(const buzz::Jid& jid, buzz::Status* status) {
-    LOGI("ClientSignalingThread::SetAvailable");
-    assert(talk_base::Thread::Current() == signal_thread_);
-    status->set_jid(jid);
-    status->set_available(true);
-    status->set_show(buzz::Status::SHOW_ONLINE);
-}
 }  // namespace tuenti
