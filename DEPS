@@ -3,6 +3,7 @@ vars = {
   # If you do not know, use the full path while defining your new deps entry.
   "googlecode_url": "http://%s.googlecode.com/svn",
   "chromium_trunk" : "http://src.chromium.org/svn/trunk",
+  "chromium_git_url" : "http://git.chromium.org/chromium",
   "github_luke_url" : "https://www.github.com/lukeweber",
   "chromium_revision": "140240",
 
@@ -40,10 +41,10 @@ deps = {
     Var("chromium_trunk") + "/src/third_party/mach_override@" + Var("chromium_revision"),
   
   "trunk/third_party/libjpeg_turbo":
-    Var("chromium_trunk") + "/deps/third_party/libjpeg_turbo@147428",
+    Var("chromium_git_url") + "/deps/third_party/libjpeg_turbo@2fdc3a8097b6a3f5de84aa9e6c901544d7166dec",
 
   "trunk/third_party/libyuv":
-    (Var("googlecode_url") % "libyuv") + "/trunk@255",
+    (Var("chromium_git_url") % "external") + "/trunk@5bf29b59db8f0efc294d969c4ad90910ff319324",
 
   "trunk/third_party/protobuf":
     Var("chromium_trunk") + "/src/third_party/protobuf@" + Var("chromium_revision"),
@@ -52,7 +53,7 @@ deps = {
     Var("chromium_trunk") + "/src/third_party/yasm@" + Var("chromium_revision"),
 
   "trunk/third_party/yasm/source/patched-yasm":
-    Var("chromium_trunk") + "/deps/third_party/yasm/patched-yasm@134927",
+    Var("chromium_git_url") + "/deps/third_party/yasm/patched-yasm@f164a228f51c17ffc3ed69516a7dc6abdf2d2c8e",
 
   "trunk/tools/clang":
     Var("chromium_trunk") + "/src/tools/clang@" + Var("chromium_revision"),
@@ -71,7 +72,7 @@ deps = {
     Var("chromium_trunk") + "/src/third_party/expat@" + Var("chromium_revision"),
 
   "trunk/third_party/libsrtp/source":
-    Var("chromium_trunk") + "/deps/third_party/libsrtp@123853",
+    Var("chromium_git_url") + "/deps/libsrtp@362c71e8d0dc205a4ad9f4709d42c25864ac872a",
 
   "trunk/third_party/libjingle":
     "https://github.com/lukeweber/libjingle-override.git",
@@ -98,7 +99,7 @@ deps = {
     Var("chromium_trunk") + "/src/third_party/libevent@" + Var("chromium_revision"),
   
   "trunk/third_party/icu":
-    Var("chromium_trunk") + "/deps/third_party/icu46@146527",
+    Var("chromium_git_url") + "deps/icu46.git@35e00e4a09eb84db0900dba7fc61c8108b61b6d4",
   
   "trunk/third_party/openssl":
     Var("chromium_trunk") + "/deps/third_party/openssl@169329",
